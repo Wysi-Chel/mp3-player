@@ -9,7 +9,6 @@ const trackInfoEl = document.getElementById('trackInfo');
 const currentTimeEl = document.getElementById('currentTime');
 const durationEl = document.getElementById('duration');
 const seekBar = document.getElementById('seekBar');
-const volumeBar = document.getElementById('volumeBar');
 const playBtn = document.getElementById('playBtn');
 const prevBtn = document.getElementById('prevBtn');
 const nextBtn = document.getElementById('nextBtn');
@@ -390,10 +389,6 @@ playBtn.addEventListener('click', togglePlayPause);
 nextBtn.addEventListener('click', playNext);
 prevBtn.addEventListener('click', playPrevious);
 clearBtn.addEventListener('click', clearAllTracks);
-
-volumeBar.addEventListener('input', () => {
-  audio.volume = Number(volumeBar.value);
-});
 
 seekBar.addEventListener('input', () => {
   isSeeking = true;

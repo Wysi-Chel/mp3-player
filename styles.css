@@ -139,7 +139,6 @@ input {
 }
 
 .time-row,
-.volume-row,
 .playlist-row {
   display: flex;
   justify-content: space-between;
@@ -211,9 +210,6 @@ input {
   white-space: nowrap;
 }
 
-.volume-row {
-  color: var(--muted);
-}
 
 input[type="range"] {
   width: 100%;
