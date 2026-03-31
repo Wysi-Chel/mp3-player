@@ -1,0 +1,268 @@
+:root {
+  color-scheme: dark;
+  --bg: #020617;
+  --bg-soft: #0f172a;
+  --card: rgba(15, 23, 42, 0.88);
+  --line: rgba(148, 163, 184, 0.18);
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --accent: #38bdf8;
+  --accent-2: #22c55e;
+  --shadow: 0 20px 40px rgba(2, 6, 23, 0.45);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top right, rgba(34, 197, 94, 0.16), transparent 32%),
+    radial-gradient(circle at top left, rgba(56, 189, 248, 0.18), transparent 36%),
+    var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+}
+
+body {
+  padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.app-shell {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 18px 0 28px;
+}
+
+.hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.eyebrow,
+.section-label {
+  margin: 0 0 6px;
+  color: var(--accent);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hero h1,
+.track-meta h2,
+.playlist h3 {
+  margin: 0;
+}
+
+.hero h1 {
+  font-size: clamp(2rem, 6vw, 3rem);
+}
+
+.subtext,
+#trackInfo,
+.empty-state,
+.track-subline {
+  color: var(--muted);
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow);
+  border-radius: 24px;
+}
+
+.player-layout {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 18px;
+}
+
+.now-playing,
+.playlist {
+  padding: 18px;
+}
+
+.cover-art {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  max-height: 320px;
+  border-radius: 24px;
+  display: grid;
+  place-items: center;
+  font-size: 4rem;
+  background: linear-gradient(160deg, rgba(56, 189, 248, 0.25), rgba(34, 197, 94, 0.18));
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 16px;
+}
+
+.track-meta {
+  margin-bottom: 16px;
+}
+
+.track-meta h2 {
+  font-size: clamp(1.4rem, 4vw, 2rem);
+}
+
+.seek-block {
+  margin: 18px 0 12px;
+}
+
+.time-row,
+.volume-row,
+.playlist-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.time-row {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.controls {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.control,
+.import-button,
+.ghost-button {
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: transform 0.18s ease, opacity 0.18s ease, background 0.18s ease;
+}
+
+.control:hover,
+.import-button:hover,
+.ghost-button:hover {
+  transform: translateY(-1px);
+}
+
+.control {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  font-size: 1.2rem;
+  color: var(--text);
+}
+
+.control.primary,
+.import-button {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #00111b;
+  font-weight: 700;
+}
+
+.control.primary {
+  width: 72px;
+  height: 72px;
+  font-size: 1.45rem;
+}
+
+.control.secondary,
+.ghost-button {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.import-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 18px;
+  white-space: nowrap;
+}
+
+.volume-row {
+  color: var(--muted);
+}
+
+input[type="range"] {
+  width: 100%;
+}
+
+.playlist-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.ghost-button {
+  padding: 10px 14px;
+}
+
+.playlist-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.track-item {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 14px;
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.track-item.active {
+  border-color: rgba(56, 189, 248, 0.6);
+  background: rgba(56, 189, 248, 0.09);
+}
+
+.track-title {
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+
+.track-subline {
+  font-size: 0.92rem;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 32px 12px 14px;
+}
+
+@media (max-width: 760px) {
+  .hero {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .player-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .import-button {
+    width: 100%;
+  }
+}
