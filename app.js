@@ -14,6 +14,8 @@ const playBtn = document.getElementById('playBtn');
 const prevBtn = document.getElementById('prevBtn');
 const nextBtn = document.getElementById('nextBtn');
 const clearBtn = document.getElementById('clearBtn');
+const coverArtImageEl = document.getElementById('coverArtImage');
+const coverArtPlaceholderEl = document.getElementById('coverArtPlaceholder');
 
 let db;
 let tracks = [];
@@ -79,6 +81,137 @@ function revokeTrackUrls() {
   });
 }
 
+function syncSafeToInt(bytes) {
+  return ((bytes[0] & 0x7f) << 21) | ((bytes[1] & 0x7f) << 14) | ((bytes[2] & 0x7f) << 7) | (bytes[3] & 0x7f);
+}
+
+function decodeLatin1(bytes) {
+  return Array.from(bytes, (byte) => String.fromCharCode(byte)).join('');
+}
+
+function findTerminator(bytes, offset, encoding) {
+  if (encoding === 1 || encoding === 2) {
+    for (let index = offset; index < bytes.length - 1; index += 1) {
+      if (bytes[index] === 0x00 && bytes[index + 1] === 0x00) return index;
+    }
+    return -1;
+  }
+
+  for (let index = offset; index < bytes.length; index += 1) {
+    if (bytes[index] === 0x00) return index;
+  }
+  return -1;
+}
+
+function bytesToDataUrl(bytes, mimeType) {
+  const blob = new Blob([bytes], { type: mimeType || 'image/jpeg' });
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function extractId3Artwork(fileOrBlob) {
+  try {
+    const buffer = await fileOrBlob.slice(0, Math.min(fileOrBlob.size, 3 * 1024 * 1024)).arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+
+    if (bytes.length < 10 || decodeLatin1(bytes.slice(0, 3)) !== 'ID3') {
+      return null;
+    }
+
+    const version = bytes[3];
+    const flags = bytes[5];
+    const tagSize = syncSafeToInt(bytes.slice(6, 10));
+    let offset = 10;
+    const tagEnd = Math.min(bytes.length, 10 + tagSize);
+
+    if (flags & 0x40) {
+      if (version === 3) {
+        const extSize = (bytes[offset] << 24) | (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3];
+        offset += extSize;
+      } else if (version === 4) {
+        const extSize = syncSafeToInt(bytes.slice(offset, offset + 4));
+        offset += extSize;
+      }
+    }
+
+    while (offset < tagEnd) {
+      if (version === 2) {
+        if (offset + 6 > tagEnd) break;
+        const frameId = decodeLatin1(bytes.slice(offset, offset + 3));
+        const frameSize = (bytes[offset + 3] << 16) | (bytes[offset + 4] << 8) | bytes[offset + 5];
+        if (!frameId.trim() || frameSize <= 0) break;
+
+        const frameStart = offset + 6;
+        const frameEnd = Math.min(tagEnd, frameStart + frameSize);
+        if (frameId === 'PIC') {
+          const frameBytes = bytes.slice(frameStart, frameEnd);
+          const encoding = frameBytes[0];
+          const format = decodeLatin1(frameBytes.slice(1, 4)).trim();
+          const mimeType = format === 'PNG' ? 'image/png' : 'image/jpeg';
+          let imageOffset = 5;
+          const descriptionEnd = findTerminator(frameBytes, imageOffset, encoding);
+          imageOffset = descriptionEnd === -1
+            ? imageOffset
+            : descriptionEnd + ((encoding === 1 || encoding === 2) ? 2 : 1);
+          return await bytesToDataUrl(frameBytes.slice(imageOffset), mimeType);
+        }
+
+        offset = frameEnd;
+        continue;
+      }
+
+      if (offset + 10 > tagEnd) break;
+
+      const frameId = decodeLatin1(bytes.slice(offset, offset + 4));
+      const frameSize = version === 4
+        ? syncSafeToInt(bytes.slice(offset + 4, offset + 8))
+        : ((bytes[offset + 4] << 24) | (bytes[offset + 5] << 16) | (bytes[offset + 6] << 8) | bytes[offset + 7]);
+
+      if (!frameId.trim() || frameSize <= 0) break;
+
+      const frameStart = offset + 10;
+      const frameEnd = Math.min(tagEnd, frameStart + frameSize);
+
+      if (frameId === 'APIC') {
+        const frameBytes = bytes.slice(frameStart, frameEnd);
+        const encoding = frameBytes[0];
+        const mimeEnd = findTerminator(frameBytes, 1, 0);
+        if (mimeEnd === -1) return null;
+        const mimeType = decodeLatin1(frameBytes.slice(1, mimeEnd)) || 'image/jpeg';
+        let imageOffset = mimeEnd + 2;
+        const descriptionEnd = findTerminator(frameBytes, imageOffset, encoding);
+        imageOffset = descriptionEnd === -1
+          ? imageOffset
+          : descriptionEnd + ((encoding === 1 || encoding === 2) ? 2 : 1);
+        return await bytesToDataUrl(frameBytes.slice(imageOffset), mimeType);
+      }
+
+      offset = frameEnd;
+    }
+  } catch (error) {
+    console.error('Unable to read album artwork', error);
+  }
+
+  return null;
+}
+
+function updateCoverArt(track) {
+  if (track?.artworkDataUrl) {
+    coverArtImageEl.src = track.artworkDataUrl;
+    coverArtImageEl.hidden = false;
+    coverArtPlaceholderEl.hidden = true;
+    return;
+  }
+
+  coverArtImageEl.removeAttribute('src');
+  coverArtImageEl.hidden = true;
+  coverArtPlaceholderEl.hidden = false;
+}
+
 function updateNowPlaying() {
   if (currentIndex < 0 || !tracks[currentIndex]) {
     trackTitleEl.textContent = 'No track selected';
@@ -87,6 +220,7 @@ function updateNowPlaying() {
     durationEl.textContent = '0:00';
     seekBar.value = 0;
     playBtn.textContent = '▶';
+    updateCoverArt(null);
     return;
   }
 
@@ -95,6 +229,7 @@ function updateNowPlaying() {
   trackInfoEl.textContent = `${formatTime(track.duration)} • ${track.filename}`;
   durationEl.textContent = formatTime(audio.duration || track.duration || 0);
   playBtn.textContent = audio.paused ? '▶' : '⏸';
+  updateCoverArt(track);
 }
 
 function renderPlaylist() {
@@ -127,6 +262,7 @@ async function fileToTrackRecord(file) {
   });
 
   URL.revokeObjectURL(tempUrl);
+  const artworkDataUrl = await extractId3Artwork(file);
 
   return {
     id: `${Date.now()}-${crypto.randomUUID()}`,
@@ -135,13 +271,35 @@ async function fileToTrackRecord(file) {
     type: file.type || 'audio/mpeg',
     duration,
     addedAt: Date.now(),
+    artworkDataUrl,
     blob: file,
   };
 }
 
+async function backfillArtwork(records) {
+  const updates = [];
+
+  for (const record of records) {
+    if (!record.artworkDataUrl && record.blob) {
+      const artworkDataUrl = await extractId3Artwork(record.blob);
+      if (artworkDataUrl) {
+        record.artworkDataUrl = artworkDataUrl;
+        updates.push(saveTrackRecord(record));
+      }
+    }
+  }
+
+  if (updates.length > 0) {
+    await Promise.all(updates);
+  }
+}
+
 async function loadTracksFromDatabase() {
   revokeTrackUrls();
-  const records = await getAllTrackRecords();
+  let records = await getAllTrackRecords();
+  await backfillArtwork(records);
+  records = await getAllTrackRecords();
+
   tracks = records.map((record) => ({
     ...record,
     url: URL.createObjectURL(record.blob),

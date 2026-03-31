@@ -28,7 +28,10 @@
 
       <main class="player-layout">
         <section class="now-playing card">
-          <div class="cover-art" aria-hidden="true">♪</div>
+          <div id="coverArt" class="cover-art" aria-label="Album artwork">
+            <img id="coverArtImage" alt="Album artwork for the current track" hidden />
+            <div id="coverArtPlaceholder" class="cover-art-placeholder" aria-hidden="true">♪</div>
+          </div>
           <div class="track-meta">
             <p class="section-label">Now playing</p>
             <h2 id="trackTitle">No track selected</h2>
