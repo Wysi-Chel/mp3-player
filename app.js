@@ -104,6 +104,67 @@ function parseChapterInfo(value) {
   return null;
 }
 
+function extractId3Artwork(blob) {
+  return blob.arrayBuffer().then((buffer) => {
+    const data = new Uint8Array(buffer);
+    if (data.length < 10 || data[0] !== 0x49 || data[1] !== 0x44 || data[2] !== 0x33) {
+      return null;
+    }
+
+    const verMajor = data[3];
+    const tagSize = (data[6] & 0x7f) << 21 | (data[7] & 0x7f) << 14 | (data[8] & 0x7f) << 7 | (data[9] & 0x7f);
+    let offset = 10;
+    const end = 10 + tagSize;
+
+    while (offset + 10 <= end && offset + 10 <= data.length) {
+      const frameId = String.fromCharCode(data[offset], data[offset + 1], data[offset + 2], data[offset + 3]);
+      let frameSize = 0;
+
+      if (verMajor === 3 || verMajor === 4) {
+        frameSize = (data[offset + 4] << 24) | (data[offset + 5] << 16) | (data[offset + 6] << 8) | data[offset + 7];
+      } else {
+        break;
+      }
+
+      if (frameSize <= 0) break;
+
+      if (frameId === 'APIC') {
+        const frameDataStart = offset + 10;
+        if (frameDataStart >= data.length) break;
+
+        let cursor = frameDataStart;
+        const textEncoding = data[cursor];
+        cursor += 1;
+
+        let mimeEnd = cursor;
+        while (mimeEnd < data.length && data[mimeEnd] !== 0x00) mimeEnd += 1;
+        const mimeType = new TextDecoder('iso-8859-1').decode(data.slice(cursor, mimeEnd));
+        cursor = mimeEnd + 1;
+
+        if (cursor >= data.length) break;
+        cursor += 1; // picture type
+
+        let descEnd = cursor;
+        const terminator = textEncoding === 0 || textEncoding === 3 ? 0x00 : 0x00;
+        while (descEnd + 1 < data.length && data[descEnd] !== terminator) descEnd += 1;
+        cursor = descEnd + 1;
+
+        if (cursor >= data.length) break;
+
+        const imageData = data.slice(cursor, offset + 10 + frameSize);
+        return {
+          mime: mimeType || 'image/jpeg',
+          blob: new Blob([imageData], { type: mimeType || 'image/jpeg' }),
+        };
+      }
+
+      offset += 10 + frameSize;
+    }
+
+    return null;
+  }).catch(() => null);
+}
+
 function matchesFilter(track) {
   const raw = filterText.trim().toLowerCase();
   if (!raw) return true;
@@ -205,6 +266,7 @@ function stripExtension(filename) {
 function revokeTrackUrls() {
   tracks.forEach((track) => {
     if (track.url) URL.revokeObjectURL(track.url);
+    if (track.coverUrl) URL.revokeObjectURL(track.coverUrl);
   });
 }
 
@@ -227,10 +289,19 @@ function updateNowPlaying() {
   durationEl.textContent = formatTime(audio.duration || track.duration || 0);
   playBtn.textContent = audio.paused ? '▶' : '⏸';
 
-  // Show profile / track info on the cover art block
-  coverArtEl.textContent = track.title.charAt(0).toUpperCase();
-  coverArtEl.style.background = 'linear-gradient(160deg, rgba(34, 197, 94, 0.35), rgba(56, 189, 248, 0.3))';
-  coverArtEl.title = `${track.title} — ${track.filename}`;
+  if (track.coverUrl) {
+    coverArtEl.textContent = '';
+    coverArtEl.style.backgroundImage = `url(${track.coverUrl})`;
+    coverArtEl.style.backgroundSize = 'cover';
+    coverArtEl.style.backgroundPosition = 'center';
+    coverArtEl.style.color = '#fff';
+    coverArtEl.title = `${track.title} — ${track.filename}`;
+  } else {
+    coverArtEl.textContent = track.title.charAt(0).toUpperCase();
+    coverArtEl.style.backgroundImage = 'none';
+    coverArtEl.style.background = 'linear-gradient(160deg, rgba(34, 197, 94, 0.35), rgba(56, 189, 248, 0.3))';
+    coverArtEl.title = `${track.title} — ${track.filename}`;
+  }
 }
 
 function renderPlaylist() {
@@ -293,6 +364,8 @@ async function fileToTrackRecord(file) {
 
   URL.revokeObjectURL(tempUrl);
 
+  const artwork = await extractId3Artwork(file);
+
   return {
     id: `${Date.now()}-${crypto.randomUUID()}`,
     title: stripExtension(file.name),
@@ -301,15 +374,32 @@ async function fileToTrackRecord(file) {
     duration,
     addedAt: Date.now(),
     blob: file,
+    artworkMime: artwork?.mime || null,
+    artworkBlob: artwork?.blob || null,
   };
 }
 
 async function loadTracksFromDatabase() {
   revokeTrackUrls();
   const records = await getAllTrackRecords();
-  tracks = records.map((record) => ({
-    ...record,
-    url: URL.createObjectURL(record.blob),
+  tracks = await Promise.all(records.map(async (record) => {
+    const url = URL.createObjectURL(record.blob);
+    let coverUrl = null;
+
+    if (record.artworkBlob) {
+      coverUrl = URL.createObjectURL(record.artworkBlob);
+    } else {
+      const artwork = await extractId3Artwork(record.blob);
+      if (artwork?.blob) {
+        coverUrl = URL.createObjectURL(artwork.blob);
+      }
+    }
+
+    return {
+      ...record,
+      url,
+      coverUrl,
+    };
   }));
 
   const savedState = loadPlayerState() || {}; // reapply saved config and last track position
