@@ -15,8 +15,12 @@ const prevBtn = document.getElementById('prevBtn');
 const nextBtn = document.getElementById('nextBtn');
 const clearBtn = document.getElementById('clearBtn');
 const filterInput = document.getElementById('filterInput');
+const filterModeSelect = document.getElementById('filterMode');
+const sortOptionSelect = document.getElementById('sortOption');
 
 let filterText = '';
+let filterMode = 'auto';
+let sortOption = 'added';
 const shuffleBtn = document.getElementById('shuffleBtn');
 const repeatBtn = document.getElementById('repeatBtn');
 
@@ -105,25 +109,42 @@ function matchesFilter(track) {
 
   const title = track.title.toLowerCase();
   const filename = track.filename.toLowerCase();
+  const chapter = parseChapterInfo(track.title) ?? parseChapterInfo(track.filename);
 
-  if (raw.startsWith('chapter ')) {
-    const num = Number(raw.replace('chapter ', '').trim());
-    if (!Number.isNaN(num)) {
-      const ch = parseChapterInfo(track.title) ?? parseChapterInfo(track.filename);
-      return ch === num;
-    }
+  const numericQuery = raw.replace(/^chapter\s*/i, '').trim();
+  const isNumeric = /^\d+$/.test(numericQuery);
+  const numericMatch = isNumeric && chapter === Number(numericQuery);
+  const textMatch = title.includes(raw) || filename.includes(raw);
+
+  if (filterMode === 'numeric') {
+    return numericMatch;
   }
 
-  if (/^\d+$/.test(raw)) {
-    const num = Number(raw);
-    const ch = parseChapterInfo(track.title) ?? parseChapterInfo(track.filename);
-    if (ch === num) return true;
+  if (filterMode === 'alphabetic') {
+    return textMatch;
   }
 
-  return title.includes(raw) || filename.includes(raw);
+  return numericMatch || textMatch;
 }
 
-function stripExtension(filename) {
+function sortTracks(items) {
+  const tracksCopy = [...items];
+
+  switch (sortOption) {
+    case 'title-asc':
+      return tracksCopy.sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' }));
+    case 'title-desc':
+      return tracksCopy.sort((a, b) => b.title.localeCompare(a.title, undefined, { numeric: true, sensitivity: 'base' }));
+    case 'duration-asc':
+      return tracksCopy.sort((a, b) => (a.duration || 0) - (b.duration || 0));
+    case 'duration-desc':
+      return tracksCopy.sort((a, b) => (b.duration || 0) - (a.duration || 0));
+    default:
+      return tracksCopy;
+  }
+}
+
+function loadPlayerState() {
   try {
     const raw = localStorage.getItem(LOCAL_STATE_KEY);
     if (!raw) return;
@@ -134,6 +155,14 @@ function stripExtension(filename) {
     }
     isShuffle = !!state.isShuffle;
     repeatMode = state.repeatMode || 'off';
+    if (state.filterMode) {
+      filterMode = state.filterMode;
+      filterModeSelect.value = filterMode;
+    }
+    if (state.sortOption) {
+      sortOption = state.sortOption;
+      sortOptionSelect.value = sortOption;
+    }
     return state;
   } catch {
     // ignore parse failures
@@ -145,6 +174,8 @@ function savePlayerState(extra = {}) {
     volume: Number(volumeBar.value),
     isShuffle,
     repeatMode,
+    filterMode,
+    sortOption,
     lastTrackId: tracks[currentIndex]?.id || null,
     lastTime: audio.currentTime || 0,
     ...extra,
@@ -197,7 +228,9 @@ function updateNowPlaying() {
 function renderPlaylist() {
   playlistEl.innerHTML = '';
 
-  const visibleTracks = tracks.filter(matchesFilter);
+  let visibleTracks = tracks.filter(matchesFilter);
+  visibleTracks = sortTracks(visibleTracks);
+
   emptyStateEl.hidden = visibleTracks.length > 0;
 
   if (visibleTracks.length === 0 && tracks.length > 0) {
@@ -448,6 +481,16 @@ clearBtn.addEventListener('click', clearAllTracks);
 
 filterInput.addEventListener('input', () => {
   filterText = filterInput.value;
+  renderPlaylist();
+});
+
+filterModeSelect.addEventListener('change', () => {
+  filterMode = filterModeSelect.value;
+  renderPlaylist();
+});
+
+sortOptionSelect.addEventListener('change', () => {
+  sortOption = sortOptionSelect.value;
   renderPlaylist();
 });
 

@@ -69,6 +69,24 @@
           <div class="filter-row">
             <label for="filterInput" class="visually-hidden">Filter tracks</label>
             <input id="filterInput" type="search" placeholder="Filter by chapter number or name" aria-label="Filter tracks" />
+
+            <div class="filter-controls">
+              <label for="filterMode" class="visually-hidden">Filter mode</label>
+              <select id="filterMode" aria-label="Filter mode">
+                <option value="auto">Auto (numeric + alphabetic)</option>
+                <option value="numeric">Numeric only</option>
+                <option value="alphabetic">Alphabetic only</option>
+              </select>
+
+              <label for="sortOption" class="visually-hidden">Sort by</label>
+              <select id="sortOption" aria-label="Sort by">
+                <option value="added">Added order</option>
+                <option value="title-asc">Title A → Z</option>
+                <option value="title-desc">Title Z → A</option>
+                <option value="duration-asc">Duration ↑</option>
+                <option value="duration-desc">Duration ↓</option>
+              </select>
+            </div>
           </div>
 
           <ul id="playlist" class="playlist-list"></ul>

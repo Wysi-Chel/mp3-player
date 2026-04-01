@@ -211,6 +211,29 @@ input[type="range"] {
 
 .filter-row {
   margin-bottom: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.filter-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.filter-controls select,
+#filterInput {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.filter-controls select:focus,
+#filterInput:focus {
+  outline: 2px solid rgba(56, 189, 248, 0.6);
 }
 
 #filterInput {
