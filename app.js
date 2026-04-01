@@ -4,6 +4,7 @@ const audio = document.getElementById('audio');
 const fileInput = document.getElementById('fileInput');
 const playlistEl = document.getElementById('playlist');
 const emptyStateEl = document.getElementById('emptyState');
+const coverArtEl = document.querySelector('.cover-art');
 const trackTitleEl = document.getElementById('trackTitle');
 const trackInfoEl = document.getElementById('trackInfo');
 const currentTimeEl = document.getElementById('currentTime');
@@ -211,6 +212,8 @@ function updateNowPlaying() {
   if (currentIndex < 0 || !tracks[currentIndex]) {
     trackTitleEl.textContent = 'No track selected';
     trackInfoEl.textContent = 'Import MP3 files to start';
+    coverArtEl.textContent = '♪';
+    coverArtEl.style.background = 'linear-gradient(160deg, rgba(56, 189, 248, 0.25), rgba(34, 197, 94, 0.18))';
     currentTimeEl.textContent = '0:00';
     durationEl.textContent = '0:00';
     seekBar.value = 0;
@@ -223,6 +226,11 @@ function updateNowPlaying() {
   trackInfoEl.textContent = `${formatTime(track.duration)} • ${track.filename}`;
   durationEl.textContent = formatTime(audio.duration || track.duration || 0);
   playBtn.textContent = audio.paused ? '▶' : '⏸';
+
+  // Show profile / track info on the cover art block
+  coverArtEl.textContent = track.title.charAt(0).toUpperCase();
+  coverArtEl.style.background = 'linear-gradient(160deg, rgba(34, 197, 94, 0.35), rgba(56, 189, 248, 0.3))';
+  coverArtEl.title = `${track.title} — ${track.filename}`;
 }
 
 function renderPlaylist() {
