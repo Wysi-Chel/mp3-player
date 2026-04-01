@@ -9,17 +9,26 @@ const trackInfoEl = document.getElementById('trackInfo');
 const currentTimeEl = document.getElementById('currentTime');
 const durationEl = document.getElementById('duration');
 const seekBar = document.getElementById('seekBar');
+const volumeBar = document.getElementById('volumeBar');
 const playBtn = document.getElementById('playBtn');
 const prevBtn = document.getElementById('prevBtn');
 const nextBtn = document.getElementById('nextBtn');
 const clearBtn = document.getElementById('clearBtn');
-const coverArtImageEl = document.getElementById('coverArtImage');
-const coverArtPlaceholderEl = document.getElementById('coverArtPlaceholder');
+const filterInput = document.getElementById('filterInput');
+
+let filterText = '';
+const shuffleBtn = document.getElementById('shuffleBtn');
+const repeatBtn = document.getElementById('repeatBtn');
+
+const LOCAL_STATE_KEY = 'mp3-player-state';
 
 let db;
 let tracks = [];
 let currentIndex = -1;
 let isSeeking = false;
+let isShuffle = false;
+let repeatMode = 'off'; // 'off' | 'one' | 'all'
+let lastSavedTime = -1;
 
 function openDatabase() {
   return new Promise((resolve, reject) => {
@@ -63,11 +72,98 @@ async function clearTrackRecords() {
   await dbRequestToPromise(store.clear());
 }
 
+async function deleteTrackRecord(id) {
+  const tx = db.transaction(STORE_NAME, 'readwrite');
+  const store = tx.objectStore(STORE_NAME);
+  await dbRequestToPromise(store.delete(id));
+}
+
 function formatTime(seconds) {
   if (!Number.isFinite(seconds)) return '0:00';
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60).toString().padStart(2, '0');
   return `${mins}:${secs}`;
+}
+
+function parseChapterInfo(value) {
+  if (!value) return null;
+  const chapterRegex = /chapter\s*#?\s*(\d+)/i;
+  const shortRegex = /^(\d+)\b/;
+
+  let match = value.match(chapterRegex);
+  if (match) return Number(match[1]);
+
+  match = value.match(shortRegex);
+  if (match) return Number(match[1]);
+
+  return null;
+}
+
+function matchesFilter(track) {
+  const raw = filterText.trim().toLowerCase();
+  if (!raw) return true;
+
+  const title = track.title.toLowerCase();
+  const filename = track.filename.toLowerCase();
+
+  if (raw.startsWith('chapter ')) {
+    const num = Number(raw.replace('chapter ', '').trim());
+    if (!Number.isNaN(num)) {
+      const ch = parseChapterInfo(track.title) ?? parseChapterInfo(track.filename);
+      return ch === num;
+    }
+  }
+
+  if (/^\d+$/.test(raw)) {
+    const num = Number(raw);
+    const ch = parseChapterInfo(track.title) ?? parseChapterInfo(track.filename);
+    if (ch === num) return true;
+  }
+
+  return title.includes(raw) || filename.includes(raw);
+}
+
+function stripExtension(filename) {
+  try {
+    const raw = localStorage.getItem(LOCAL_STATE_KEY);
+    if (!raw) return;
+    const state = JSON.parse(raw);
+    if (typeof state.volume === 'number') {
+      volumeBar.value = state.volume;
+      audio.volume = state.volume;
+    }
+    isShuffle = !!state.isShuffle;
+    repeatMode = state.repeatMode || 'off';
+    return state;
+  } catch {
+    // ignore parse failures
+  }
+}
+
+function savePlayerState(extra = {}) {
+  const state = {
+    volume: Number(volumeBar.value),
+    isShuffle,
+    repeatMode,
+    lastTrackId: tracks[currentIndex]?.id || null,
+    lastTime: audio.currentTime || 0,
+    ...extra,
+  };
+  localStorage.setItem(LOCAL_STATE_KEY, JSON.stringify(state));
+}
+
+function updateShuffleRepeatButtons() {
+  shuffleBtn.classList.toggle('active', isShuffle);
+  repeatBtn.textContent = repeatMode === 'off' ? '🔁' : repeatMode === 'one' ? '🔂' : '🔁';
+  repeatBtn.classList.toggle('active', repeatMode !== 'off');
+}
+
+function cycleRepeatMode() {
+  if (repeatMode === 'off') repeatMode = 'all';
+  else if (repeatMode === 'all') repeatMode = 'one';
+  else repeatMode = 'off';
+  updateShuffleRepeatButtons();
+  savePlayerState();
 }
 
 function stripExtension(filename) {
@@ -80,137 +176,6 @@ function revokeTrackUrls() {
   });
 }
 
-function syncSafeToInt(bytes) {
-  return ((bytes[0] & 0x7f) << 21) | ((bytes[1] & 0x7f) << 14) | ((bytes[2] & 0x7f) << 7) | (bytes[3] & 0x7f);
-}
-
-function decodeLatin1(bytes) {
-  return Array.from(bytes, (byte) => String.fromCharCode(byte)).join('');
-}
-
-function findTerminator(bytes, offset, encoding) {
-  if (encoding === 1 || encoding === 2) {
-    for (let index = offset; index < bytes.length - 1; index += 1) {
-      if (bytes[index] === 0x00 && bytes[index + 1] === 0x00) return index;
-    }
-    return -1;
-  }
-
-  for (let index = offset; index < bytes.length; index += 1) {
-    if (bytes[index] === 0x00) return index;
-  }
-  return -1;
-}
-
-function bytesToDataUrl(bytes, mimeType) {
-  const blob = new Blob([bytes], { type: mimeType || 'image/jpeg' });
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
-}
-
-async function extractId3Artwork(fileOrBlob) {
-  try {
-    const buffer = await fileOrBlob.slice(0, Math.min(fileOrBlob.size, 3 * 1024 * 1024)).arrayBuffer();
-    const bytes = new Uint8Array(buffer);
-
-    if (bytes.length < 10 || decodeLatin1(bytes.slice(0, 3)) !== 'ID3') {
-      return null;
-    }
-
-    const version = bytes[3];
-    const flags = bytes[5];
-    const tagSize = syncSafeToInt(bytes.slice(6, 10));
-    let offset = 10;
-    const tagEnd = Math.min(bytes.length, 10 + tagSize);
-
-    if (flags & 0x40) {
-      if (version === 3) {
-        const extSize = (bytes[offset] << 24) | (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3];
-        offset += extSize;
-      } else if (version === 4) {
-        const extSize = syncSafeToInt(bytes.slice(offset, offset + 4));
-        offset += extSize;
-      }
-    }
-
-    while (offset < tagEnd) {
-      if (version === 2) {
-        if (offset + 6 > tagEnd) break;
-        const frameId = decodeLatin1(bytes.slice(offset, offset + 3));
-        const frameSize = (bytes[offset + 3] << 16) | (bytes[offset + 4] << 8) | bytes[offset + 5];
-        if (!frameId.trim() || frameSize <= 0) break;
-
-        const frameStart = offset + 6;
-        const frameEnd = Math.min(tagEnd, frameStart + frameSize);
-        if (frameId === 'PIC') {
-          const frameBytes = bytes.slice(frameStart, frameEnd);
-          const encoding = frameBytes[0];
-          const format = decodeLatin1(frameBytes.slice(1, 4)).trim();
-          const mimeType = format === 'PNG' ? 'image/png' : 'image/jpeg';
-          let imageOffset = 5;
-          const descriptionEnd = findTerminator(frameBytes, imageOffset, encoding);
-          imageOffset = descriptionEnd === -1
-            ? imageOffset
-            : descriptionEnd + ((encoding === 1 || encoding === 2) ? 2 : 1);
-          return await bytesToDataUrl(frameBytes.slice(imageOffset), mimeType);
-        }
-
-        offset = frameEnd;
-        continue;
-      }
-
-      if (offset + 10 > tagEnd) break;
-
-      const frameId = decodeLatin1(bytes.slice(offset, offset + 4));
-      const frameSize = version === 4
-        ? syncSafeToInt(bytes.slice(offset + 4, offset + 8))
-        : ((bytes[offset + 4] << 24) | (bytes[offset + 5] << 16) | (bytes[offset + 6] << 8) | bytes[offset + 7]);
-
-      if (!frameId.trim() || frameSize <= 0) break;
-
-      const frameStart = offset + 10;
-      const frameEnd = Math.min(tagEnd, frameStart + frameSize);
-
-      if (frameId === 'APIC') {
-        const frameBytes = bytes.slice(frameStart, frameEnd);
-        const encoding = frameBytes[0];
-        const mimeEnd = findTerminator(frameBytes, 1, 0);
-        if (mimeEnd === -1) return null;
-        const mimeType = decodeLatin1(frameBytes.slice(1, mimeEnd)) || 'image/jpeg';
-        let imageOffset = mimeEnd + 2;
-        const descriptionEnd = findTerminator(frameBytes, imageOffset, encoding);
-        imageOffset = descriptionEnd === -1
-          ? imageOffset
-          : descriptionEnd + ((encoding === 1 || encoding === 2) ? 2 : 1);
-        return await bytesToDataUrl(frameBytes.slice(imageOffset), mimeType);
-      }
-
-      offset = frameEnd;
-    }
-  } catch (error) {
-    console.error('Unable to read album artwork', error);
-  }
-
-  return null;
-}
-
-function updateCoverArt(track) {
-  if (track?.artworkDataUrl) {
-    coverArtImageEl.src = track.artworkDataUrl;
-    coverArtImageEl.hidden = false;
-    coverArtPlaceholderEl.hidden = true;
-    return;
-  }
-
-  coverArtImageEl.removeAttribute('src');
-  coverArtImageEl.hidden = true;
-  coverArtPlaceholderEl.hidden = false;
-}
-
 function updateNowPlaying() {
   if (currentIndex < 0 || !tracks[currentIndex]) {
     trackTitleEl.textContent = 'No track selected';
@@ -219,7 +184,6 @@ function updateNowPlaying() {
     durationEl.textContent = '0:00';
     seekBar.value = 0;
     playBtn.textContent = '▶';
-    updateCoverArt(null);
     return;
   }
 
@@ -228,26 +192,52 @@ function updateNowPlaying() {
   trackInfoEl.textContent = `${formatTime(track.duration)} • ${track.filename}`;
   durationEl.textContent = formatTime(audio.duration || track.duration || 0);
   playBtn.textContent = audio.paused ? '▶' : '⏸';
-  updateCoverArt(track);
 }
 
 function renderPlaylist() {
   playlistEl.innerHTML = '';
-  emptyStateEl.hidden = tracks.length > 0;
 
-  tracks.forEach((track, index) => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = `track-item${index === currentIndex ? ' active' : ''}`;
-    button.innerHTML = `
-      <p class="track-title">${track.title}</p>
-      <div class="playlist-row">
-        <span class="track-subline">${track.filename}</span>
-        <span class="track-subline">${formatTime(track.duration)}</span>
+  const visibleTracks = tracks.filter(matchesFilter);
+  emptyStateEl.hidden = visibleTracks.length > 0;
+
+  if (visibleTracks.length === 0 && tracks.length > 0) {
+    emptyStateEl.textContent = 'No matching chapter or track found.';
+    emptyStateEl.hidden = false;
+  } else {
+    emptyStateEl.textContent = 'No songs yet. Tap (Add MP3 files) to import tracks.';
+  }
+
+  visibleTracks.forEach((track) => {
+    const index = tracks.findIndex((t) => t.id === track.id);
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = `track-item${index === currentIndex ? ' active' : ''}`;
+    item.innerHTML = `
+      <div>
+        <p class="track-title">${track.title}</p>
+        <div class="playlist-row">
+          <span class="track-subline">${track.filename}</span>
+          <span class="track-subline">${formatTime(track.duration)}</span>
+        </div>
       </div>
     `;
-    button.addEventListener('click', () => playTrack(index));
-    playlistEl.appendChild(button);
+    item.addEventListener('click', () => playTrack(index));
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'remove-track';
+    removeBtn.title = 'Remove track';
+    removeBtn.textContent = '✕';
+    removeBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      removeTrack(index);
+    });
+
+    const wrapper = document.createElement('li');
+    wrapper.className = 'playlist-item';
+    wrapper.appendChild(item);
+    wrapper.appendChild(removeBtn);
+    playlistEl.appendChild(wrapper);
   });
 }
 
@@ -261,7 +251,6 @@ async function fileToTrackRecord(file) {
   });
 
   URL.revokeObjectURL(tempUrl);
-  const artworkDataUrl = await extractId3Artwork(file);
 
   return {
     id: `${Date.now()}-${crypto.randomUUID()}`,
@@ -270,51 +259,43 @@ async function fileToTrackRecord(file) {
     type: file.type || 'audio/mpeg',
     duration,
     addedAt: Date.now(),
-    artworkDataUrl,
     blob: file,
   };
 }
 
-async function backfillArtwork(records) {
-  const updates = [];
-
-  for (const record of records) {
-    if (!record.artworkDataUrl && record.blob) {
-      const artworkDataUrl = await extractId3Artwork(record.blob);
-      if (artworkDataUrl) {
-        record.artworkDataUrl = artworkDataUrl;
-        updates.push(saveTrackRecord(record));
-      }
-    }
-  }
-
-  if (updates.length > 0) {
-    await Promise.all(updates);
-  }
-}
-
 async function loadTracksFromDatabase() {
   revokeTrackUrls();
-  let records = await getAllTrackRecords();
-  await backfillArtwork(records);
-  records = await getAllTrackRecords();
-
+  const records = await getAllTrackRecords();
   tracks = records.map((record) => ({
     ...record,
     url: URL.createObjectURL(record.blob),
   }));
 
+  const savedState = loadPlayerState() || {}; // reapply saved config and last track position
+
   if (tracks.length === 0) {
     currentIndex = -1;
     audio.removeAttribute('src');
     audio.load();
-  } else if (currentIndex >= tracks.length || currentIndex === -1) {
-    currentIndex = 0;
+  } else {
+    if (savedState.lastTrackId) {
+      const savedIndex = tracks.findIndex((t) => t.id === savedState.lastTrackId);
+      if (savedIndex !== -1) currentIndex = savedIndex;
+      else currentIndex = 0;
+    } else if (currentIndex < 0 || currentIndex >= tracks.length) {
+      currentIndex = 0;
+    }
+
+    const lastTime = Number(savedState.lastTime || 0);
+    if (lastTime > 0 && lastTime < (tracks[currentIndex]?.duration || Number.MAX_VALUE)) {
+      audio.currentTime = lastTime;
+    }
   }
 
   renderPlaylist();
   updateNowPlaying();
 }
+
 
 async function addFiles(files) {
   const selected = Array.from(files).filter((file) => file.type.startsWith('audio/') || file.name.toLowerCase().endsWith('.mp3'));
@@ -330,15 +311,26 @@ async function addFiles(files) {
 
 function playTrack(index, autoplay = true) {
   if (!tracks[index]) return;
+
   currentIndex = index;
-  audio.src = tracks[index].url;
+  const track = tracks[index];
+  audio.src = track.url;
   audio.load();
+
+  const savedState = loadPlayerState();
+  if (savedState?.lastTrackId === track.id && Number(savedState.lastTime) > 0) {
+    audio.currentTime = Math.min(Number(savedState.lastTime), track.duration || Number.MAX_VALUE);
+  }
+
   renderPlaylist();
   updateNowPlaying();
+  savePlayerState();
+
   if (autoplay) {
     audio.play().catch(() => {});
   }
 }
+
 
 function togglePlayPause() {
   if (!audio.src && tracks.length > 0) {
@@ -356,13 +348,59 @@ function togglePlayPause() {
 
 function playNext() {
   if (tracks.length === 0) return;
-  const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % tracks.length : 0;
+
+  if (repeatMode === 'one' && currentIndex >= 0) {
+    playTrack(currentIndex);
+    return;
+  }
+
+  let nextIndex;
+  if (isShuffle) {
+    if (tracks.length === 1) {
+      nextIndex = 0;
+    } else {
+      nextIndex = currentIndex;
+      while (nextIndex === currentIndex) {
+        nextIndex = Math.floor(Math.random() * tracks.length);
+      }
+    }
+  } else {
+    nextIndex = currentIndex >= 0 ? currentIndex + 1 : 0;
+    if (nextIndex >= tracks.length) {
+      if (repeatMode === 'all') {
+        nextIndex = 0;
+      } else {
+        audio.pause();
+        return;
+      }
+    }
+  }
+
   playTrack(nextIndex);
 }
 
 function playPrevious() {
   if (tracks.length === 0) return;
-  const prevIndex = currentIndex > 0 ? currentIndex - 1 : tracks.length - 1;
+
+  if (repeatMode === 'one' && currentIndex >= 0) {
+    playTrack(currentIndex);
+    return;
+  }
+
+  let prevIndex;
+  if (isShuffle) {
+    if (tracks.length === 1) {
+      prevIndex = 0;
+    } else {
+      prevIndex = currentIndex;
+      while (prevIndex === currentIndex) {
+        prevIndex = Math.floor(Math.random() * tracks.length);
+      }
+    }
+  } else {
+    prevIndex = currentIndex > 0 ? currentIndex - 1 : tracks.length - 1;
+  }
+
   playTrack(prevIndex);
 }
 
@@ -372,10 +410,28 @@ async function clearAllTracks() {
   await clearTrackRecords();
   tracks = [];
   currentIndex = -1;
+  savePlayerState({ lastTrackId: null, lastTime: 0 });
   audio.removeAttribute('src');
   audio.load();
   renderPlaylist();
   updateNowPlaying();
+}
+
+async function removeTrack(index) {
+  if (!tracks[index]) return;
+  const removedTrack = tracks[index];
+
+  await deleteTrackRecord(removedTrack.id);
+  const wasCurrent = index === currentIndex;
+
+  await loadTracksFromDatabase();
+
+  if (tracks.length > 0 && wasCurrent) {
+    currentIndex = Math.min(index, tracks.length - 1);
+    playTrack(currentIndex, false);
+  } else {
+    updateNowPlaying();
+  }
 }
 
 fileInput.addEventListener('change', async (event) => {
@@ -389,6 +445,24 @@ playBtn.addEventListener('click', togglePlayPause);
 nextBtn.addEventListener('click', playNext);
 prevBtn.addEventListener('click', playPrevious);
 clearBtn.addEventListener('click', clearAllTracks);
+
+filterInput.addEventListener('input', () => {
+  filterText = filterInput.value;
+  renderPlaylist();
+});
+
+volumeBar.addEventListener('input', () => {
+  audio.volume = Number(volumeBar.value);
+  savePlayerState();
+});
+
+shuffleBtn.addEventListener('click', () => {
+  isShuffle = !isShuffle;
+  updateShuffleRepeatButtons();
+  savePlayerState();
+});
+
+repeatBtn.addEventListener('click', cycleRepeatMode);
 
 seekBar.addEventListener('input', () => {
   isSeeking = true;
@@ -412,10 +486,53 @@ audio.addEventListener('timeupdate', () => {
   }
   currentTimeEl.textContent = formatTime(audio.currentTime || 0);
   durationEl.textContent = formatTime(audio.duration || 0);
+
+  const currentSecond = Math.floor(audio.currentTime);
+  if (currentSecond !== lastSavedTime) {
+    lastSavedTime = currentSecond;
+    savePlayerState();
+  }
 });
 
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) updateNowPlaying();
+});
+
+window.addEventListener('dragover', (event) => {
+  event.preventDefault();
+});
+
+window.addEventListener('drop', async (event) => {
+  event.preventDefault();
+  if (event.dataTransfer?.files?.length) {
+    await addFiles(event.dataTransfer.files);
+  }
+});
+
+document.addEventListener('keydown', (event) => {
+  const active = document.activeElement;
+  if (active && ['INPUT', 'TEXTAREA', 'BUTTON', 'SELECT'].includes(active.tagName)) return;
+
+  if (event.code === 'Space') {
+    event.preventDefault();
+    togglePlayPause();
+  } else if (event.code === 'ArrowRight') {
+    event.preventDefault();
+    playNext();
+  } else if (event.code === 'ArrowLeft') {
+    event.preventDefault();
+    playPrevious();
+  } else if (event.code === 'ArrowUp') {
+    event.preventDefault();
+    volumeBar.value = Math.min(1, Number(volumeBar.value) + 0.1).toFixed(2);
+    audio.volume = Number(volumeBar.value);
+    savePlayerState();
+  } else if (event.code === 'ArrowDown') {
+    event.preventDefault();
+    volumeBar.value = Math.max(0, Number(volumeBar.value) - 0.1).toFixed(2);
+    audio.volume = Number(volumeBar.value);
+    savePlayerState();
+  }
 });
 
 if ('serviceWorker' in navigator) {
@@ -427,7 +544,9 @@ if ('serviceWorker' in navigator) {
 (async function init() {
   try {
     db = await openDatabase();
+    loadPlayerState();
     await loadTracksFromDatabase();
+    updateShuffleRepeatButtons();
   } catch (error) {
     trackInfoEl.textContent = 'Storage is not available in this browser mode.';
     console.error(error);

@@ -28,10 +28,7 @@
 
       <main class="player-layout">
         <section class="now-playing card">
-          <div id="coverArt" class="cover-art" aria-label="Album artwork">
-            <img id="coverArtImage" alt="Album artwork for the current track" hidden />
-            <div id="coverArtPlaceholder" class="cover-art-placeholder" aria-hidden="true">♪</div>
-          </div>
+          <div class="cover-art" aria-hidden="true">♪</div>
           <div class="track-meta">
             <p class="section-label">Now playing</p>
             <h2 id="trackTitle">No track selected</h2>
@@ -47,11 +44,17 @@
           </div>
 
           <div class="controls">
+            <button id="shuffleBtn" class="control secondary" type="button" aria-label="Toggle shuffle">🔀</button>
             <button id="prevBtn" class="control secondary" type="button">⏮</button>
             <button id="playBtn" class="control primary" type="button">▶</button>
             <button id="nextBtn" class="control secondary" type="button">⏭</button>
+            <button id="repeatBtn" class="control secondary" type="button" aria-label="Cycle repeat mode">🔁</button>
           </div>
 
+          <div class="volume-row">
+            <label for="volumeBar">Volume</label>
+            <input id="volumeBar" type="range" min="0" max="1" step="0.01" value="1" />
+          </div>
         </section>
 
         <section class="playlist card">
@@ -62,6 +65,12 @@
             </div>
             <button id="clearBtn" class="ghost-button" type="button">Clear all</button>
           </div>
+
+          <div class="filter-row">
+            <label for="filterInput" class="visually-hidden">Filter tracks</label>
+            <input id="filterInput" type="search" placeholder="Filter by chapter number or name" aria-label="Filter tracks" />
+          </div>
+
           <ul id="playlist" class="playlist-list"></ul>
           <p id="emptyState" class="empty-state">No songs yet. Tap <strong>Add MP3 files</strong> to import tracks.</p>
         </section>

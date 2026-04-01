@@ -96,34 +96,16 @@ input {
 }
 
 .cover-art {
-  position: relative;
   width: 100%;
   aspect-ratio: 1 / 1;
   max-height: 320px;
-  overflow: hidden;
   border-radius: 24px;
-  background: linear-gradient(160deg, rgba(56, 189, 248, 0.25), rgba(34, 197, 94, 0.18));
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  margin-bottom: 16px;
-}
-
-.cover-art img {
-  width: 100%;
-  height: 100%;
-  display: block;
-  object-fit: cover;
-}
-
-.cover-art-placeholder {
-  position: absolute;
-  inset: 0;
   display: grid;
   place-items: center;
   font-size: 4rem;
-  color: rgba(226, 232, 240, 0.92);
-  background:
-    linear-gradient(180deg, rgba(15, 23, 42, 0.12), rgba(2, 6, 23, 0.26)),
-    linear-gradient(160deg, rgba(56, 189, 248, 0.25), rgba(34, 197, 94, 0.18));
+  background: linear-gradient(160deg, rgba(56, 189, 248, 0.25), rgba(34, 197, 94, 0.18));
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 16px;
 }
 
 .track-meta {
@@ -139,6 +121,7 @@ input {
 }
 
 .time-row,
+.volume-row,
 .playlist-row {
   display: flex;
   justify-content: space-between;
@@ -210,6 +193,9 @@ input {
   white-space: nowrap;
 }
 
+.volume-row {
+  color: var(--muted);
+}
 
 input[type="range"] {
   width: 100%;
@@ -221,6 +207,34 @@ input[type="range"] {
   gap: 12px;
   align-items: center;
   margin-bottom: 10px;
+}
+
+.filter-row {
+  margin-bottom: 10px;
+}
+
+#filterInput {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+#filterInput:focus {
+  outline: 2px solid rgba(56, 189, 248, 0.6);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  border: 0;
 }
 
 .ghost-button {
@@ -236,7 +250,14 @@ input[type="range"] {
   gap: 10px;
 }
 
+.playlist-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .track-item {
+  flex: 1;
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -252,6 +273,28 @@ input[type="range"] {
   background: rgba(56, 189, 248, 0.09);
 }
 
+.remove-track {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+
+.remove-track:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.control.active {
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.2);
+}
 .track-title {
   font-weight: 600;
   margin: 0 0 6px;
